@@ -194,3 +194,104 @@
     )
 )
 
+;; Decentralized Attribute Schema Registry
+(define-map schema-registry
+    (string-ascii 50)  ;; schema-id
+    {
+        name: (string-ascii 100),
+        version: (string-ascii 20),
+        creator: principal,
+        created-at: uint,
+        updated-at: uint,
+        status: (string-ascii 20),
+        field-count: uint,
+        required-verifier-score: uint
+    }
+)
+
+(define-map schema-fields
+    {
+        schema-id: (string-ascii 50),
+        field-name: (string-ascii 50)
+    }
+    {
+        field-type: (string-ascii 20),
+        required: bool,
+        description: (string-ascii 200),
+        validation-regex: (optional (string-ascii 100)),
+        min-length: (optional uint),
+        max-length: (optional uint)
+    }
+)
+
+(define-map schema-endorsements
+    (string-ascii 50)  ;; schema-id
+    (list 100 principal)
+)
+
+(define-public (register-schema 
+    (schema-id (string-ascii 50))
+    (name (string-ascii 100))
+    (version (string-ascii 20))
+    (required-score uint))
+    (let
+        (
+            (existing-schema (map-get? schema-registry schema-id))
+        )
+        (asserts! (is-none existing-schema) err-already-exists)
+        (asserts! (is-verifier tx-sender) err-unauthorized)
+        
+        (ok (map-set schema-registry schema-id
+            {
+                name: name,
+                version: version,
+                creator: tx-sender,
+                created-at: block-height,
+                updated-at: block-height,
+                status: "active",
+                field-count: u0,
+                required-verifier-score: required-score
+            }))
+    )
+)
+
+(define-public (add-schema-field
+    (schema-id (string-ascii 50))
+    (field-name (string-ascii 50))
+    (field-type (string-ascii 20))
+    (required bool)
+    (description (string-ascii 200))
+    (validation-regex (optional (string-ascii 100)))
+    (min-length (optional uint))
+    (max-length (optional uint)))
+    (let
+        (
+            (schema (unwrap! (map-get? schema-registry schema-id) err-not-found))
+        )
+        (asserts! (is-eq (get creator schema) tx-sender) err-unauthorized)
+        (asserts! (is-eq (get status schema) "active") err-invalid-status)
+        
+        ;; Update field count
+        (map-set schema-registry schema-id
+            (merge schema
+                {
+                    field-count: (+ (get field-count schema) u1),
+                    updated-at: block-height
+                }
+            ))
+        
+        (ok (map-set schema-fields
+            {
+                schema-id: schema-id,
+                field-name: field-name
+            }
+            {
+                field-type: field-type,
+                required: required,
+                description: description,
+                validation-regex: validation-regex,
+                min-length: min-length,
+                max-length: max-length
+            }))
+    )
+)
